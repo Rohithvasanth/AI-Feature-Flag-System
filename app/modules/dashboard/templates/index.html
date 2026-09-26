@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Feature Flag System - MLOps Dashboard</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0fdf4', 500: '#22c55e', 600: '#16a34a', 700: '#15803d' },
+            darkbg: '#0f172a',
+            cardbg: '#1e293b',
+            borderbg: '#334155'
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React, ReactDOM, Babel CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Recharts & Prop-Types CDN -->
+  <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.12.0/umd/Recharts.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body { background-color: #0f172a; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+    const { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area, BarChart, Bar } = Recharts;
+
+    const FEATURE_NAME = "expense_categorizer";
+
+    function App() {
+      // State
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [successMsg, setSuccessMsg] = useState(null);
+      const [showRollbackModal, setShowRollbackModal] = useState(false);
+
+      // Data states from backend APIs
+      const [flag, setFlag] = useState(null);
+      const [qualitySummary, setQualitySummary] = useState(null);
+      const [monitoringStatus, setMonitoringStatus] = useState(null);
+      const [rollbackHistory, setRollbackHistory] = useState([]);
+      const [rolloutHistory, setRolloutHistory] = useState([]);
+      const [monitoringHistory, setMonitoringHistory] = useState([]);
+
+      // Test categorizer interactive state
+      const [testUser, setTestUser] = useState("user_dashboard_1");
+      const [testDesc, setTestDesc] = useState("Starbucks Latte Coffee");
+      const [testAmount, setTestAmount] = useState(6.50);
+      const [testResult, setTestResult] = useState(null);
+      const [testLoading, setTestLoading] = useState(false);
+
+      // Fetch all real backend data
+      const fetchDashboardData = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          // 1. Fetch feature flag details
+          const flagRes = await fetch(`/api/v1/flags/${FEATURE_NAME}`);
+          if (flagRes.ok) {
+            const flagData = await flagRes.json();
+            setFlag(flagData);
+          } else {
+            setFlag(null);
+          }
+
+          // 2. Fetch quality summary
+          const qualRes = await fetch(`/api/v1/quality/summary/${FEATURE_NAME}`);
+          if (qualRes.ok) setQualitySummary(await qualRes.json());
+
+          // 3. Fetch monitoring status
+          const monRes = await fetch(`/api/v1/monitoring/status/${FEATURE_NAME}`);
+          if (monRes.ok) setMonitoringStatus(await monRes.json());
+
+          // 4. Fetch rollback history
+          const rbRes = await fetch(`/api/v1/rollback/history/${FEATURE_NAME}`);
+          if (rbRes.ok) setRollbackHistory(await rbRes.json());
+
+          // 5. Fetch rollout history
+          const roRes = await fetch(`/api/v1/rollout/history/${FEATURE_NAME}`);
+          if (roRes.ok) setRolloutHistory(await roRes.json());
+
+          // 6. Fetch monitoring history
+          const mhRes = await fetch(`/api/v1/monitoring/history/${FEATURE_NAME}`);
+          if (mhRes.ok) setMonitoringHistory(await mhRes.json());
+
+        } catch (err) {
+          setError("Failed to connect to backend server: " + err.message);
+        } finally {
+          setLoading(false);
+        }
+      }, []);
+
+      useEffect(() => {
+        fetchDashboardData();
+        const interval = setInterval(fetchDashboardData, 15000); // Auto refresh every 15s
+        return () => clearInterval(interval);
+      }, [fetchDashboardData]);
+
+      // Control Action Handlers
+      const showToast = (msg) => {
+        setSuccessMsg(msg);
+        setTimeout(() => setSuccessMsg(null), 4000);
+      };
+
+      const handleCreateDefaultFlag = async () => {
+        try {
+          const res = await fetch('/api/v1/flags/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              feature_name: FEATURE_NAME,
+              enabled: true,
+              rollout_percentage: 10.0,
+              baseline_version: 'categorizer_v1',
+              experiment_version: 'categorizer_v2',
+              quality_threshold: 0.85
+            })
+          });
+          if (res.ok) {
+            showToast("Default feature flag created successfully!");
+            fetchDashboardData();
+          }
+        } catch (err) {
+          setError("Failed to create flag: " + err.message);
+        }
+      };
+
+      const handleStartRollout = async () => {
+        try {
+          const res = await fetch(`/api/v1/rollout/start/${FEATURE_NAME}`, { method: 'POST' });
+          if (res.ok) {
+            const data = await res.json();
+            showToast(`Rollout started! Stage initialized to ${data.new_percentage}%`);
+            fetchDashboardData();
+          }
+        } catch (err) {
+          setError("Failed to start rollout: " + err.message);
+        }
+      };
+
+      const handleAdvanceRollout = async () => {
+        try {
+          const res = await fetch(`/api/v1/rollout/advance/${FEATURE_NAME}`, { method: 'POST' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.action_taken === "ROLLED_BACK") {
+              setError(`Rollout BLOCKED & ROLLED BACK: ${data.reason}`);
+            } else {
+              showToast(`Rollout Advanced! Action: ${data.action_taken}, Traffic: ${data.previous_percentage}% -> ${data.new_percentage}%`);
+            }
+            fetchDashboardData();
+          }
+        } catch (err) {
+          setError("Failed to advance rollout: " + err.message);
+        }
+      };
+
+      const handleExecuteRollback = async () => {
+        setShowRollbackModal(false);
+        try {
+          const res = await fetch(`/api/v1/rollback/evaluate/${FEATURE_NAME}`, { method: 'POST' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.executed) {
+              setError(`AUTOMATIC ROLLBACK EXECUTED! ${data.reason}`);
+            } else {
+              showToast(`Rollback Check Complete: ${data.reason}`);
+            }
+            fetchDashboardData();
+          }
+        } catch (err) {
+          setError("Failed to execute rollback: " + err.message);
+        }
+      };
+
+      const handleTestCategorize = async (e) => {
+        e.preventDefault();
+        setTestLoading(true);
+        try {
+          const res = await fetch('/api/v1/categorize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: testUser,
+              description: testDesc,
+              amount: parseFloat(testAmount)
+            })
+          });
+          if (res.ok) {
+            setTestResult(await res.json());
+          }
+        } catch (err) {
+          setError("Test request failed: " + err.message);
+        } finally {
+          setTestLoading(false);
+        }
+      };
+
+      // Chart Data formatting
+      const qualityChartData = (monitoringHistory.length > 0 ? monitoringHistory : []).map((log, idx) => ({
+        index: `#${idx + 1}`,
+        score: log.avg_quality_score,
+        version: log.version,
+        threshold: log.quality_threshold,
+        timestamp: new Date(log.created_at).toLocaleTimeString()
+      })).reverse();
+
+      const rolloutChartData = [
+        { stage: '0%', traffic: 0 },
+        { stage: '10%', traffic: 10 },
+        { stage: '25%', traffic: 25 },
+        { stage: '50%', traffic: 50 },
+        { stage: '75%', traffic: 75 },
+        { stage: '100%', traffic: 100 }
+      ].map(s => ({
+        ...s,
+        active: flag && flag.rollout_percentage >= parseFloat(s.stage)
+      }));
+
+      const lastRollback = rollbackHistory.length > 0 ? rollbackHistory[0] : null;
+
+      return (
+        <div className="min-h-screen flex flex-col bg-slate-900 text-slate-100">
+          
+          {/* Top Header */}
+          <header className="h-16 bg-slate-800 border-b border-slate-700 px-6 flex items-center justify-between sticky top-0 z-30 shadow-md">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-600 rounded-lg shadow-lg">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              </div>
+              <div>
+                <h1 className="font-bold text-lg text-white tracking-wide">AI Feature Flag Engine</h1>
+                <p className="text-xs text-slate-400">MLOps Quality Guard & Gradual Rollout</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/80 border border-slate-700 rounded-full text-xs">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="text-slate-300 font-medium">Backend Connected (v1.0)</span>
+              </div>
+              <button 
+                onClick={fetchDashboardData} 
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold rounded-lg transition flex items-center gap-1.5"
+              >
+                🔄 Refresh Data
+              </button>
+            </div>
+          </header>
+
+          {/* Main Layout Container */}
+          <div className="flex-1 flex overflow-hidden">
+
+            {/* Sidebar Navigation */}
+            <aside className="w-64 bg-slate-800/90 border-r border-slate-700 p-4 flex flex-col justify-between hidden md:flex">
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2">Navigation</h3>
+                  <nav className="space-y-1">
+                    <a href="#overview" className="flex items-center gap-3 px-3 py-2 bg-indigo-600/20 text-indigo-400 border-l-4 border-indigo-500 rounded-r-lg font-medium text-sm">
+                      📊 Dashboard Overview
+                    </a>
+                    <a href="#analytics" className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-700/50 hover:text-slate-200 rounded-lg font-medium text-sm transition">
+                      📈 Quality Analytics
+                    </a>
+                    <a href="#controls" className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-700/50 hover:text-slate-200 rounded-lg font-medium text-sm transition">
+                      ⚡ Rollout & Controls
+                    </a>
+                    <a href="#history" className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-700/50 hover:text-slate-200 rounded-lg font-medium text-sm transition">
+                      📜 Audit Logs & History
+                    </a>
+                    <a href="#demo" className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-700/50 hover:text-slate-200 rounded-lg font-medium text-sm transition">
+                      🤖 AI Categorizer Demo
+                    </a>
+                  </nav>
+                </div>
+
+                {/* Flag Config Quick Summary */}
+                {flag && (
+                  <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-700/60 text-xs space-y-2">
+                    <div className="font-semibold text-slate-300 border-b border-slate-800 pb-1.5">Flag Config ({flag.feature_name})</div>
+                    <div className="flex justify-between"><span className="text-slate-400">Baseline:</span> <span className="font-mono text-emerald-400">{flag.baseline_version}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">Experiment:</span> <span className="font-mono text-indigo-400">{flag.experiment_version}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">Threshold:</span> <span className="font-bold text-amber-400">{(flag.quality_threshold * 100).toFixed(0)}%</span></div>
+                  </div>
+                )}
+              </div>
+
+              <div className="text-xs text-slate-500 text-center border-t border-slate-700/60 pt-3">
+                AI Expense Categorizer Demo
+              </div>
+            </aside>
+
+            {/* Dashboard Content */}
+            <main className="flex-1 overflow-y-auto p-6 space-y-6">
+
+              {/* Notification Banners */}
+              {error && (
+                <div className="bg-rose-950/80 border border-rose-600/80 text-rose-200 p-4 rounded-xl flex items-start justify-between shadow-lg">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">🚨</span>
+                    <div>
+                      <div className="font-bold text-sm">System Alert / Error</div>
+                      <div className="text-xs text-rose-300">{error}</div>
+                    </div>
+                  </div>
+                  <button onClick={() => setError(null)} className="text-rose-400 hover:text-white font-bold">✕</button>
+                </div>
+              )}
+
+              {successMsg && (
+                <div className="bg-emerald-950/80 border border-emerald-600/80 text-emerald-200 p-4 rounded-xl flex items-start justify-between shadow-lg">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">✅</span>
+                    <div className="text-sm font-semibold">{successMsg}</div>
+                  </div>
+                  <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-white font-bold">✕</button>
+                </div>
+              )}
+
+              {/* Threshold Violation Banner */}
+              {monitoringStatus && monitoringStatus.alert_triggered && (
+                <div className="bg-amber-950/90 border-2 border-amber-500 text-amber-100 p-4 rounded-xl flex items-center justify-between shadow-xl animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">⚠️</span>
+                    <div>
+                      <div className="font-bold text-base text-amber-400">QUALITY THRESHOLD VIOLATION DETECTED</div>
+                      <div className="text-xs text-amber-200">
+                        Experiment version ({monitoringStatus.experiment_health.version}) average quality score 
+                        <span className="font-mono font-bold text-amber-300"> ({monitoringStatus.experiment_health.avg_quality_score})</span> fell below threshold 
+                        <span className="font-mono font-bold text-amber-300"> ({monitoringStatus.quality_threshold})</span>.
+                      </div>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setShowRollbackModal(true)} 
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg shadow-lg"
+                  >
+                    Execute Rollback
+                  </button>
+                </div>
+              )}
+
+              {/* Missing Flag Alert */}
+              {!loading && !flag && (
+                <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 text-center space-y-3">
+                  <div className="text-3xl">🚩</div>
+                  <h3 className="font-bold text-lg text-white">No Feature Flag Initialized in Database</h3>
+                  <p className="text-sm text-slate-400">Initialize default feature flag <code className="text-indigo-400">expense_categorizer</code> to start tracking.</p>
+                  <button onClick={handleCreateDefaultFlag} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl shadow-lg">
+                    Create Default Flag
+                  </button>
+                </div>
+              )}
+
+              {/* 1. KPI Cards Section */}
+              <section id="overview" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+                
+                {/* KPI 1: Feature Status */}
+                <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                  <div className="text-xs font-semibold text-slate-400 uppercase">Feature Flag Status</div>
+                  <div className="my-2 flex items-center justify-between">
+                    <span className="font-bold text-lg text-white">{flag ? flag.feature_name : "None"}</span>
+                    {flag && (
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${flag.enabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-slate-700 text-slate-400'}`}>
+                        {flag.enabled ? 'Active' : 'Disabled'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-500 truncate">
+                    {flag ? `${flag.baseline_version} vs ${flag.experiment_version}` : 'No flag'}
+                  </div>
+                </div>
+
+                {/* KPI 2: Rollout % */}
+                <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                  <div className="text-xs font-semibold text-slate-400 uppercase">Current Rollout %</div>
+                  <div className="my-2 flex items-baseline justify-between">
+                    <span className="font-bold text-2xl text-indigo-400">{flag ? flag.rollout_percentage.toFixed(0) : 0}%</span>
+                    <span className="text-xs text-slate-400">Target 100%</span>
+                  </div>
+                  <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+                    <div className="bg-indigo-500 h-2 rounded-full transition-all duration-500" style={{ width: `${flag ? flag.rollout_percentage : 0}%` }}></div>
+                  </div>
+                </div>
+
+                {/* KPI 3: Version A Quality */}
+                <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                  <div className="text-xs font-semibold text-slate-400 uppercase">Version A Quality</div>
+                  <div className="my-2 flex items-baseline justify-between">
+                    <span className="font-bold text-2xl text-emerald-400">
+                      {qualitySummary ? (qualitySummary.baseline_stats.avg_quality_score * 100).toFixed(1) : "0.0"}%
+                    </span>
+                    <span className="text-xs text-slate-400">Baseline</span>
+                  </div>
+                  <div className="text-xs text-slate-400 flex justify-between">
+                    <span>Acc: {qualitySummary ? qualitySummary.baseline_stats.accuracy_rate : 0}%</span>
+                    <span>N={qualitySummary ? qualitySummary.baseline_stats.total_evaluations : 0}</span>
+                  </div>
+                </div>
+
+                {/* KPI 4: Version B Quality */}
+                <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                  <div className="text-xs font-semibold text-slate-400 uppercase">Version B Quality</div>
+                  <div className="my-2 flex items-baseline justify-between">
+                    <span className="font-bold text-2xl text-indigo-400">
+                      {qualitySummary ? (qualitySummary.experiment_stats.avg_quality_score * 100).toFixed(1) : "0.0"}%
+                    </span>
+                    <span className="text-xs text-slate-400">Experiment</span>
+                  </div>
+                  <div className="text-xs text-slate-400 flex justify-between">
+                    <span>Acc: {qualitySummary ? qualitySummary.experiment_stats.accuracy_rate : 0}%</span>
+                    <span>N={qualitySummary ? qualitySummary.experiment_stats.total_evaluations : 0}</span>
+                  </div>
+                </div>
+
+                {/* KPI 5: Monitoring Status */}
+                <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                  <div className="text-xs font-semibold text-slate-400 uppercase">Monitoring Health</div>
+                  <div className="my-2">
+                    {monitoringStatus ? (
+                      <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${monitoringStatus.is_healthy ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'}`}>
+                        {monitoringStatus.experiment_health.health_status}
+                      </span>
+                    ) : <span className="text-xs text-slate-500">N/A</span>}
+                  </div>
+                  <div className="text-xs text-slate-400 flex justify-between">
+                    <span>Trend:</span>
+                    <span className="font-semibold text-amber-400">{monitoringStatus ? monitoringStatus.experiment_health.trend : 'STABLE'}</span>
+                  </div>
+                </div>
+
+                {/* KPI 6: Last Rollback */}
+                <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                  <div className="text-xs font-semibold text-slate-400 uppercase">Last Rollback</div>
+                  <div className="my-2 font-bold text-sm text-slate-200 truncate">
+                    {lastRollback ? `${lastRollback.previous_version} → ${lastRollback.new_version}` : "None Recorded"}
+                  </div>
+                  <div className="text-xs text-slate-500 truncate">
+                    {lastRollback ? new Date(lastRollback.created_at).toLocaleTimeString() : "System Healthy"}
+                  </div>
+                </div>
+
+              </section>
+
+              {/* 2. Interactive Controls & Action Bar */}
+              <section id="controls" className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-700 pb-3">
+                  <div>
+                    <h2 className="font-bold text-base text-white">Live Control & Automation Panel</h2>
+                    <p className="text-xs text-slate-400">Trigger staged rollouts, monitor quality health, or execute safety rollbacks.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button 
+                      onClick={handleStartRollout}
+                      className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-md transition"
+                    >
+                      🚀 Start Rollout (10%)
+                    </button>
+                    <button 
+                      onClick={handleAdvanceRollout}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-md transition"
+                    >
+                      ⏩ Advance Stage
+                    </button>
+                    <button 
+                      onClick={() => setShowRollbackModal(true)}
+                      className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-md transition"
+                    >
+                      🛑 Trigger Rollback
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              {/* 3. Charts Grid Section */}
+              <section id="analytics" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* Chart 1: Quality Over Time */}
+                <div className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-sm text-white">Quality Score Trend</h3>
+                      <p className="text-xs text-slate-400">Historical quality evaluations vs threshold</p>
+                    </div>
+                    {flag && <span className="text-xs font-mono text-amber-400 font-bold">Threshold: {(flag.quality_threshold * 100).toFixed(0)}%</span>}
+                  </div>
+
+                  <div className="h-64 w-full">
+                    {qualityChartData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={qualityChartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                          <XAxis dataKey="index" stroke="#94a3b8" fontSize={12} />
+                          <YAxis domain={[0, 1]} stroke="#94a3b8" fontSize={12} />
+                          <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#475569', color: '#f8fafc' }} />
+                          <Line type="monotone" dataKey="score" stroke="#6366f1" strokeWidth={3} dot={{ r: 4 }} name="Quality Score" />
+                          <Line type="monotone" dataKey="threshold" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" name="Threshold" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                        No evaluation history data recorded yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Chart 2: Gradual Rollout Stages */}
+                <div className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-sm text-white">Gradual Rollout Progression</h3>
+                      <p className="text-xs text-slate-400">Staged traffic split: 0% → 10% → 25% → 50% → 75% → 100%</p>
+                    </div>
+                    <span className="text-xs font-bold text-indigo-400">Current: {flag ? flag.rollout_percentage : 0}%</span>
+                  </div>
+
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={rolloutChartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                        <XAxis dataKey="stage" stroke="#94a3b8" fontSize={12} />
+                        <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={12} />
+                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#475569', color: '#f8fafc' }} />
+                        <Bar dataKey="traffic" fill="#6366f1" radius={[6, 6, 0, 0]} name="Traffic %" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+              </section>
+
+              {/* 4. AI Categorizer Demo Interactive Section */}
+              <section id="demo" className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-4">
+                <div className="border-b border-slate-700 pb-3">
+                  <h3 className="font-bold text-base text-white">AI Expense Categorizer Demo</h3>
+                  <p className="text-xs text-slate-400">Test live requests handled by Version A vs Version B based on user assignment.</p>
+                </div>
+
+                <form onSubmit={handleTestCategorize} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1">User ID</label>
+                    <input 
+                      type="text" 
+                      value={testUser} 
+                      onChange={e => setTestUser(e.target.value)} 
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs text-white"
+                      required 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1">Expense Description</label>
+                    <input 
+                      type="text" 
+                      value={testDesc} 
+                      onChange={e => setTestDesc(e.target.value)} 
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs text-white"
+                      required 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1">Amount ($)</label>
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      value={testAmount} 
+                      onChange={e => setTestAmount(e.target.value)} 
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs text-white"
+                      required 
+                    />
+                  </div>
+                  <button 
+                    type="submit" 
+                    disabled={testLoading}
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow-md transition"
+                  >
+                    {testLoading ? "Categorizing..." : "Categorize Expense"}
+                  </button>
+                </form>
+
+                {testResult && (
+                  <div className="bg-slate-900 border border-indigo-500/40 p-4 rounded-xl grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                    <div><span className="text-slate-400">Assigned Version:</span> <div className="font-mono font-bold text-indigo-400">{testResult.assigned_version}</div></div>
+                    <div><span className="text-slate-400">Category:</span> <div className="font-bold text-white">{testResult.category}</div></div>
+                    <div><span className="text-slate-400">Subcategory:</span> <div className="font-bold text-emerald-400">{testResult.subcategory}</div></div>
+                    <div><span className="text-slate-400">Confidence:</span> <div className="font-bold text-amber-400">{(testResult.confidence * 100).toFixed(0)}%</div></div>
+                  </div>
+                )}
+              </section>
+
+              {/* 5. History Tables Grid */}
+              <section id="history" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* Rollout History Table */}
+                <div className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-3">
+                  <h3 className="font-bold text-sm text-white">Rollout Progression History</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-300">
+                      <thead className="bg-slate-900 text-slate-400 font-semibold">
+                        <tr>
+                          <th className="p-2.5 rounded-l-lg">Time</th>
+                          <th className="p-2.5">Transition</th>
+                          <th className="p-2.5">Status</th>
+                          <th className="p-2.5 rounded-r-lg">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700/50">
+                        {rolloutHistory.length > 0 ? rolloutHistory.map((ro) => (
+                          <tr key={ro.id} className="hover:bg-slate-700/30">
+                            <td className="p-2.5 font-mono text-slate-400">{new Date(ro.created_at).toLocaleTimeString()}</td>
+                            <td className="p-2.5 font-bold text-indigo-400">{ro.from_percentage}% → {ro.to_percentage}%</td>
+                            <td className="p-2.5 font-semibold text-emerald-400">{ro.status}</td>
+                            <td className="p-2.5 text-slate-400 truncate max-w-xs">{ro.reason}</td>
+                          </tr>
+                        )) : (
+                          <tr><td colSpan="4" className="p-4 text-center text-slate-500">No rollout history logs recorded yet.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Rollback History Table */}
+                <div className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-3">
+                  <h3 className="font-bold text-sm text-white">Rollback Event Audit Log</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-300">
+                      <thead className="bg-slate-900 text-slate-400 font-semibold">
+                        <tr>
+                          <th className="p-2.5 rounded-l-lg">Time</th>
+                          <th className="p-2.5">Action</th>
+                          <th className="p-2.5">Traffic</th>
+                          <th className="p-2.5 rounded-r-lg">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700/50">
+                        {rollbackHistory.length > 0 ? rollbackHistory.map((rb) => (
+                          <tr key={rb.id} className="hover:bg-slate-700/30">
+                            <td className="p-2.5 font-mono text-slate-400">{new Date(rb.created_at).toLocaleTimeString()}</td>
+                            <td className="p-2.5 font-bold text-rose-400">{rb.previous_version} → {rb.new_version}</td>
+                            <td className="p-2.5 font-mono">{rb.rollout_percentage_before}% → {rb.rollout_percentage_after}%</td>
+                            <td className="p-2.5 text-rose-300 truncate max-w-xs">{rb.reason}</td>
+                          </tr>
+                        )) : (
+                          <tr><td colSpan="4" className="p-4 text-center text-slate-500">No rollback events recorded. System operates safely.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </section>
+
+            </main>
+          </div>
+
+          {/* Rollback Modal Confirmation Dialog */}
+          {showRollbackModal && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-slate-800 border border-rose-500/80 p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-4 animate-scaleUp">
+                <div className="flex items-center gap-3 text-rose-400">
+                  <span className="text-3xl">⚠️</span>
+                  <h3 className="font-bold text-lg text-white">Confirm Safety Rollback</h3>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Are you sure you want to execute an emergency rollback for flag 
+                  <code className="text-indigo-400 font-mono font-bold"> {FEATURE_NAME}</code>?
+                  This will immediately set rollout traffic to <strong className="text-rose-400">0.0%</strong> and restore 100% of user traffic to baseline model <code className="text-emerald-400 font-mono">categorizer_v1</code>.
+                </p>
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button 
+                    onClick={() => setShowRollbackModal(false)}
+                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleExecuteRollback}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-lg"
+                  >
+                    Confirm & Rollback
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
