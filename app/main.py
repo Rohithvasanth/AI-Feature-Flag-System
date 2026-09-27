@@ -9,6 +9,7 @@ from app.modules.monitoring.router import router as monitoring_router
 from app.modules.rollback.router import router as rollback_router
 from app.modules.rollout.router import router as rollout_router
 from app.modules.dashboard.router import router as dashboard_router
+from app.modules.shadow.router import router as shadow_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,6 +32,7 @@ app.include_router(quality_router)
 app.include_router(monitoring_router)
 app.include_router(rollback_router)
 app.include_router(rollout_router)
+app.include_router(shadow_router)
 app.include_router(dashboard_router)
 
 @app.get("/")

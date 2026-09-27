@@ -32,9 +32,6 @@
   <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
   <script src="https://unpkg.com/recharts@2.12.0/umd/Recharts.js"></script>
 
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
-
   <style>
     body { background-color: #0f172a; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -47,7 +44,7 @@
 
   <script type="text/babel">
     const { useState, useEffect, useCallback } = React;
-    const { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area, BarChart, Bar } = Recharts;
+    const { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } = Recharts;
 
     const FEATURE_NAME = "expense_categorizer";
 
@@ -65,6 +62,8 @@
       const [rollbackHistory, setRollbackHistory] = useState([]);
       const [rolloutHistory, setRolloutHistory] = useState([]);
       const [monitoringHistory, setMonitoringHistory] = useState([]);
+      const [shadowStatus, setShadowStatus] = useState(null);
+      const [shadowHistory, setShadowHistory] = useState([]);
 
       // Test categorizer interactive state
       const [testUser, setTestUser] = useState("user_dashboard_1");
@@ -78,34 +77,30 @@
         setLoading(true);
         setError(null);
         try {
-          // 1. Fetch feature flag details
           const flagRes = await fetch(`/api/v1/flags/${FEATURE_NAME}`);
-          if (flagRes.ok) {
-            const flagData = await flagRes.json();
-            setFlag(flagData);
-          } else {
-            setFlag(null);
-          }
+          if (flagRes.ok) setFlag(await flagRes.json());
+          else setFlag(null);
 
-          // 2. Fetch quality summary
           const qualRes = await fetch(`/api/v1/quality/summary/${FEATURE_NAME}`);
           if (qualRes.ok) setQualitySummary(await qualRes.json());
 
-          // 3. Fetch monitoring status
           const monRes = await fetch(`/api/v1/monitoring/status/${FEATURE_NAME}`);
           if (monRes.ok) setMonitoringStatus(await monRes.json());
 
-          // 4. Fetch rollback history
           const rbRes = await fetch(`/api/v1/rollback/history/${FEATURE_NAME}`);
           if (rbRes.ok) setRollbackHistory(await rbRes.json());
 
-          // 5. Fetch rollout history
           const roRes = await fetch(`/api/v1/rollout/history/${FEATURE_NAME}`);
           if (roRes.ok) setRolloutHistory(await roRes.json());
 
-          // 6. Fetch monitoring history
           const mhRes = await fetch(`/api/v1/monitoring/history/${FEATURE_NAME}`);
           if (mhRes.ok) setMonitoringHistory(await mhRes.json());
+
+          const shRes = await fetch(`/api/v1/shadow/status/${FEATURE_NAME}`);
+          if (shRes.ok) setShadowStatus(await shRes.json());
+
+          const shHistRes = await fetch(`/api/v1/shadow/history/${FEATURE_NAME}`);
+          if (shHistRes.ok) setShadowHistory(await shHistRes.json());
 
         } catch (err) {
           setError("Failed to connect to backend server: " + err.message);
@@ -116,11 +111,10 @@
 
       useEffect(() => {
         fetchDashboardData();
-        const interval = setInterval(fetchDashboardData, 15000); // Auto refresh every 15s
+        const interval = setInterval(fetchDashboardData, 15000);
         return () => clearInterval(interval);
       }, [fetchDashboardData]);
 
-      // Control Action Handlers
       const showToast = (msg) => {
         setSuccessMsg(msg);
         setTimeout(() => setSuccessMsg(null), 4000);
@@ -179,6 +173,19 @@
         }
       };
 
+      const handleToggleShadowMode = async (enable) => {
+        try {
+          const endpoint = enable ? `/api/v1/shadow/enable/${FEATURE_NAME}` : `/api/v1/shadow/disable/${FEATURE_NAME}`;
+          const res = await fetch(endpoint, { method: 'POST' });
+          if (res.ok) {
+            showToast(`Shadow Mode ${enable ? 'Enabled 👻' : 'Disabled'}`);
+            fetchDashboardData();
+          }
+        } catch (err) {
+          setError("Failed to toggle shadow mode: " + err.message);
+        }
+      };
+
       const handleExecuteRollback = async () => {
         setShowRollbackModal(false);
         try {
@@ -212,6 +219,7 @@
           });
           if (res.ok) {
             setTestResult(await res.json());
+            fetchDashboardData();
           }
         } catch (err) {
           setError("Test request failed: " + err.message);
@@ -220,7 +228,6 @@
         }
       };
 
-      // Chart Data formatting
       const qualityChartData = (monitoringHistory.length > 0 ? monitoringHistory : []).map((log, idx) => ({
         index: `#${idx + 1}`,
         score: log.avg_quality_score,
@@ -254,7 +261,7 @@
               </div>
               <div>
                 <h1 className="font-bold text-lg text-white tracking-wide">AI Feature Flag Engine</h1>
-                <p className="text-xs text-slate-400">MLOps Quality Guard & Gradual Rollout</p>
+                <p className="text-xs text-slate-400">MLOps Quality Guard, Gradual Rollout & Shadow Mode</p>
               </div>
             </div>
 
@@ -290,6 +297,9 @@
                     <a href="#controls" className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-700/50 hover:text-slate-200 rounded-lg font-medium text-sm transition">
                       ⚡ Rollout & Controls
                     </a>
+                    <a href="#shadow" className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-700/50 hover:text-slate-200 rounded-lg font-medium text-sm transition">
+                      👻 Shadow Mode
+                    </a>
                     <a href="#history" className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-700/50 hover:text-slate-200 rounded-lg font-medium text-sm transition">
                       📜 Audit Logs & History
                     </a>
@@ -299,7 +309,6 @@
                   </nav>
                 </div>
 
-                {/* Flag Config Quick Summary */}
                 {flag && (
                   <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-700/60 text-xs space-y-2">
                     <div className="font-semibold text-slate-300 border-b border-slate-800 pb-1.5">Flag Config ({flag.feature_name})</div>
@@ -318,7 +327,6 @@
             {/* Dashboard Content */}
             <main className="flex-1 overflow-y-auto p-6 space-y-6">
 
-              {/* Notification Banners */}
               {error && (
                 <div className="bg-rose-950/80 border border-rose-600/80 text-rose-200 p-4 rounded-xl flex items-start justify-between shadow-lg">
                   <div className="flex items-center gap-3">
@@ -342,7 +350,6 @@
                 </div>
               )}
 
-              {/* Threshold Violation Banner */}
               {monitoringStatus && monitoringStatus.alert_triggered && (
                 <div className="bg-amber-950/90 border-2 border-amber-500 text-amber-100 p-4 rounded-xl flex items-center justify-between shadow-xl animate-pulse">
                   <div className="flex items-center gap-3">
@@ -365,7 +372,6 @@
                 </div>
               )}
 
-              {/* Missing Flag Alert */}
               {!loading && !flag && (
                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 text-center space-y-3">
                   <div className="text-3xl">🚩</div>
@@ -380,7 +386,6 @@
               {/* 1. KPI Cards Section */}
               <section id="overview" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
                 
-                {/* KPI 1: Feature Status */}
                 <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
                   <div className="text-xs font-semibold text-slate-400 uppercase">Feature Flag Status</div>
                   <div className="my-2 flex items-center justify-between">
@@ -396,7 +401,6 @@
                   </div>
                 </div>
 
-                {/* KPI 2: Rollout % */}
                 <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
                   <div className="text-xs font-semibold text-slate-400 uppercase">Current Rollout %</div>
                   <div className="my-2 flex items-baseline justify-between">
@@ -408,7 +412,6 @@
                   </div>
                 </div>
 
-                {/* KPI 3: Version A Quality */}
                 <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
                   <div className="text-xs font-semibold text-slate-400 uppercase">Version A Quality</div>
                   <div className="my-2 flex items-baseline justify-between">
@@ -423,7 +426,6 @@
                   </div>
                 </div>
 
-                {/* KPI 4: Version B Quality */}
                 <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
                   <div className="text-xs font-semibold text-slate-400 uppercase">Version B Quality</div>
                   <div className="my-2 flex items-baseline justify-between">
@@ -438,7 +440,6 @@
                   </div>
                 </div>
 
-                {/* KPI 5: Monitoring Status */}
                 <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
                   <div className="text-xs font-semibold text-slate-400 uppercase">Monitoring Health</div>
                   <div className="my-2">
@@ -454,7 +455,6 @@
                   </div>
                 </div>
 
-                {/* KPI 6: Last Rollback */}
                 <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm flex flex-col justify-between">
                   <div className="text-xs font-semibold text-slate-400 uppercase">Last Rollback</div>
                   <div className="my-2 font-bold text-sm text-slate-200 truncate">
@@ -472,7 +472,7 @@
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-700 pb-3">
                   <div>
                     <h2 className="font-bold text-base text-white">Live Control & Automation Panel</h2>
-                    <p className="text-xs text-slate-400">Trigger staged rollouts, monitor quality health, or execute safety rollbacks.</p>
+                    <p className="text-xs text-slate-400">Trigger staged rollouts, monitor quality health, toggle shadow mode, or execute safety rollbacks.</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button 
@@ -488,6 +488,12 @@
                       ⏩ Advance Stage
                     </button>
                     <button 
+                      onClick={() => handleToggleShadowMode(!shadowStatus?.shadow_enabled)}
+                      className={`px-3.5 py-2 text-xs font-bold rounded-lg shadow-md transition ${shadowStatus?.shadow_enabled ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'}`}
+                    >
+                      👻 {shadowStatus?.shadow_enabled ? 'Disable Shadow Mode' : 'Enable Shadow Mode'}
+                    </button>
+                    <button 
                       onClick={() => setShowRollbackModal(true)}
                       className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-md transition"
                     >
@@ -497,10 +503,81 @@
                 </div>
               </section>
 
-              {/* 3. Charts Grid Section */}
+              {/* 3. Shadow Mode Status Section (Module 13) */}
+              <section id="shadow" className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-700 pb-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">👻</span>
+                    <div>
+                      <h3 className="font-bold text-base text-white">Shadow Mode Evaluation (Module 13)</h3>
+                      <p className="text-xs text-slate-400">Runs Version B concurrently in background without altering production response.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${shadowStatus?.shadow_enabled ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40 animate-pulse' : 'bg-slate-700 text-slate-400'}`}>
+                      {shadowStatus?.shadow_enabled ? 'SHADOW ACTIVE' : 'SHADOW DISABLED'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+                  <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-700/60">
+                    <div className="text-slate-400 mb-1">Shadow Model Version</div>
+                    <div className="font-mono font-bold text-purple-400 text-sm">{shadowStatus?.shadow_version || "categorizer_v2"}</div>
+                  </div>
+                  <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-700/60">
+                    <div className="text-slate-400 mb-1">Category Match Rate</div>
+                    <div className="font-bold text-emerald-400 text-sm">{shadowStatus?.category_match_rate || 0}%</div>
+                  </div>
+                  <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-700/60">
+                    <div className="text-slate-400 mb-1">Total Shadow Evaluated</div>
+                    <div className="font-bold text-white text-sm">{shadowStatus?.total_shadow_evaluations || 0} requests</div>
+                  </div>
+                  <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-700/60">
+                    <div className="text-slate-400 mb-1">Prod vs Shadow Latency</div>
+                    <div className="font-bold text-amber-400 text-sm">{shadowStatus?.avg_prod_latency_ms || 0}ms vs {shadowStatus?.avg_shadow_latency_ms || 0}ms</div>
+                  </div>
+                </div>
+
+                {/* Shadow Log Audit Table */}
+                <div className="overflow-x-auto border-t border-slate-700/60 pt-3">
+                  <div className="text-xs font-semibold text-slate-300 mb-2">Recent Shadow Comparisons (Non-Production Background Runs)</div>
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-900 text-slate-400 font-semibold">
+                      <tr>
+                        <th className="p-2.5 rounded-l-lg">Time</th>
+                        <th className="p-2.5">User</th>
+                        <th className="p-2.5">Description</th>
+                        <th className="p-2.5">Production Category ({flag ? flag.baseline_version : 'prod'})</th>
+                        <th className="p-2.5">Shadow Category ({shadowStatus ? shadowStatus.shadow_version : 'shadow'})</th>
+                        <th className="p-2.5 rounded-r-lg">Match Result</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/50">
+                      {shadowHistory.length > 0 ? shadowHistory.slice(0, 5).map((sh) => (
+                        <tr key={sh.id} className="hover:bg-slate-700/30">
+                          <td className="p-2.5 font-mono text-slate-400">{new Date(sh.created_at).toLocaleTimeString()}</td>
+                          <td className="p-2.5 font-mono">{sh.user_id}</td>
+                          <td className="p-2.5 truncate max-w-xs">{sh.description}</td>
+                          <td className="p-2.5 font-semibold text-emerald-400">{sh.prod_category}</td>
+                          <td className="p-2.5 font-semibold text-purple-400">{sh.shadow_category}</td>
+                          <td className="p-2.5">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${sh.category_matched ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'}`}>
+                              {sh.category_matched ? 'MATCH' : 'DIFFERED'} (Non-Prod)
+                            </span>
+                          </td>
+                        </tr>
+                      )) : (
+                        <tr><td colSpan="6" className="p-4 text-center text-slate-500">No shadow mode logs recorded yet. Toggle Shadow Mode above and make categorization requests to view live shadow analysis.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              {/* 4. Charts Grid Section */}
               <section id="analytics" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 
-                {/* Chart 1: Quality Over Time */}
                 <div className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
@@ -530,7 +607,6 @@
                   </div>
                 </div>
 
-                {/* Chart 2: Gradual Rollout Stages */}
                 <div className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
@@ -555,7 +631,7 @@
 
               </section>
 
-              {/* 4. AI Categorizer Demo Interactive Section */}
+              {/* 5. AI Categorizer Demo Interactive Section */}
               <section id="demo" className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-4">
                 <div className="border-b border-slate-700 pb-3">
                   <h3 className="font-bold text-base text-white">AI Expense Categorizer Demo</h3>
@@ -613,10 +689,9 @@
                 )}
               </section>
 
-              {/* 5. History Tables Grid */}
+              {/* 6. History Tables Grid */}
               <section id="history" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 
-                {/* Rollout History Table */}
                 <div className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-3">
                   <h3 className="font-bold text-sm text-white">Rollout Progression History</h3>
                   <div className="overflow-x-auto">
@@ -645,7 +720,6 @@
                   </div>
                 </div>
 
-                {/* Rollback History Table */}
                 <div className="bg-slate-800 border border-slate-700 p-5 rounded-2xl shadow-md space-y-3">
                   <h3 className="font-bold text-sm text-white">Rollback Event Audit Log</h3>
                   <div className="overflow-x-auto">
